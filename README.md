@@ -5,8 +5,8 @@ All backends aren't implemented, if you're missing one you feel you need please 
 
 Implementing all backends separately is done to avoid having to import the entire Rclone library.
 
-::note
-AI Usage Disclaimer: Github Copilot was used to assist while writing some of the code in this repository, but the development was driven by a real human* (*not like the TV show).
+> [!NOTE]
+> AI Usage Disclaimer: Github Copilot was used to assist while writing some of the code in this repository, but the development was driven by a real human* (*not like the TV show).
 
 ## Usage
 
