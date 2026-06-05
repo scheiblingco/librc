@@ -1,0 +1,71 @@
+name: librc-test
+
+services:
+  sftp:
+    image: atmoz/sftp:latest
+    ports:
+      - "2222:22"
+    # Creates testuser with password testpass (uid 1001) and a writable upload/ subdir.
+    command: testuser:testpass:1001::upload
+
+  ftp:
+    image: delfer/alpine-ftp-server:latest
+    ports:
+      - "21:21"
+      - "21000-21010:21000-21010"
+    environment:
+      USERS: "testuser|testpass"
+      ADDRESS: "127.0.0.1"
+      MIN_PORT: 21000
+      MAX_PORT: 21010
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Creates the test bucket once MinIO is healthy.
+  createbucket:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin123 &&
+        mc mb --ignore-existing local/librc-test
+      "
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    ports:
+      - "10000:10000"
+    command: azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck
+
+  # Mock Hetzner Storage Box: atmoz/sftp on port 2323 (Hetzner uses port 23 in prod).
+  # In production, remove Host/Port overrides and set Username to your box username.
+  hetzner-mock:
+    image: atmoz/sftp:latest
+    ports:
+      - "2323:22"
+    command: u123456:testpass:1001::upload
+
+  smb:
+    image: dperson/samba:latest
+    ports:
+      - "445:445"
+    # -u "user;pass"  -s "sharename;path;browsable;readonly;guest ok;valid users"
+    command: >-
+      -u "testuser;testpass"
+      -s "share;/share;yes;no;no;testuser"
+    tmpfs:
+      - /share
