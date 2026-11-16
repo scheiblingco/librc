@@ -1,3 +1,5 @@
+//go:build integration
+
 package tests
 
 import (
@@ -7,8 +9,8 @@ import (
 	"github.com/scheiblingco/librc/remote/s3"
 )
 
-// TestS3 requires the minio service from compose.yml running on localhost:9000.
-// The createbucket service pre-creates the librc-test bucket.
+// TestS3 requires the s3 service from compose.yml (rclone serve s3) on localhost:9000.
+// The service creates the librc-test bucket at startup.
 // Credentials: minioadmin / minioadmin123
 func TestS3(t *testing.T) {
 	ctx := context.Background()
@@ -16,7 +18,7 @@ func TestS3(t *testing.T) {
 	fsys, err := s3.New(ctx, s3.Config{
 		Name:            "s3-test",
 		Bucket:          "librc-test",
-		Provider:        s3.ProviderMinio,
+		Provider:        s3.ProviderOther,
 		AccessKeyID:     "minioadmin",
 		SecretAccessKey: "minioadmin123",
 		Endpoint:        "http://localhost:9000",

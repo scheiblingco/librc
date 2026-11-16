@@ -43,6 +43,12 @@ type Filesystem interface {
 	// Pass an empty string for the root directory.
 	List(ctx context.Context, dir string) ([]DirEntry, error)
 
+	// Walk calls fn for every file and directory below dir, recursively.
+	// Pass an empty string for the root directory. Entries come in no
+	// particular order (a child may be seen before its parent), fn is never
+	// called concurrently, and an error returned by fn stops the walk.
+	Walk(ctx context.Context, dir string, fn func(DirEntry) error) error
+
 	// Create the directory at dir.
 	Mkdir(ctx context.Context, dir string) error
 

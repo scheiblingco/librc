@@ -33,6 +33,19 @@ func New(ctx context.Context, cfg Config) (*Filesystem, error) {
 		root = cfg.Share + "/" + cfg.Root
 	}
 
+	m, err := configMap(cfg)
+	if err != nil {
+		return nil, err
+	}
+	inner, err := rclonesmb.NewFs(ctx, cfg.Name, root, m)
+	if err != nil {
+		return nil, fmt.Errorf("smb: %w", err)
+	}
+	return &Filesystem{inner: inner, cfg: cfg}, nil
+}
+
+// configMap turns cfg into rclone options (shared by New and ListShares)
+func configMap(cfg Config) (configmap.Simple, error) {
 	m := configmap.Simple{}
 	if err := rcloneutil.ApplyDefaults("smb", m); err != nil {
 		return nil, err
@@ -57,12 +70,21 @@ func New(ctx context.Context, cfg Config) (*Filesystem, error) {
 	if cfg.IdleTimeout != 0 {
 		m.Set("idle_timeout", cfg.IdleTimeout.String())
 	}
+	return m, nil
+}
 
-	inner, err := rclonesmb.NewFs(ctx, cfg.Name, root, m)
+// ListShares lists the shares visible on the server; cfg.Share and cfg.Root are ignored.
+// Names come back sorted.
+func ListShares(ctx context.Context, cfg Config) ([]string, error) {
+	m, err := configMap(cfg)
+	if err != nil {
+		return nil, err
+	}
+	f, err := rclonesmb.NewFs(ctx, cfg.Name, "", m)
 	if err != nil {
 		return nil, fmt.Errorf("smb: %w", err)
 	}
-	return &Filesystem{inner: inner, cfg: cfg}, nil
+	return rcloneutil.TopLevelDirs(ctx, f)
 }
 
 func (f *Filesystem) Unwrap() rclonefs.Fs { return f.inner }
@@ -141,6 +163,10 @@ func (f *Filesystem) List(ctx context.Context, dir string) ([]libfs.DirEntry, er
 		result[i] = e
 	}
 	return result, nil
+}
+
+func (f *Filesystem) Walk(ctx context.Context, dir string, fn func(libfs.DirEntry) error) error {
+	return rcloneutil.Walk(ctx, f.inner, dir, fn)
 }
 
 func (f *Filesystem) Mkdir(ctx context.Context, dir string) error {

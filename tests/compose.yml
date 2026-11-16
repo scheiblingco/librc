@@ -19,31 +19,24 @@ services:
       MIN_PORT: 21000
       MAX_PORT: 21010
 
-  minio:
-    image: minio/minio:latest
+  # S3 server: rclone's own `serve s3` (MinIO no longer publishes pullable images).
+  # Every top-level directory of /data is a bucket, so librc-test is created up front.
+  s3:
+    image: rclone/rclone:1.74.3
     ports:
       - "9000:9000"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin123
-    command: server /data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["mkdir -p /data/librc-test && exec rclone serve s3 /data --addr :9000 --auth-key minioadmin,minioadmin123"]
+    tmpfs:
+      - /data
 
-  # Creates the test bucket once MinIO is healthy.
-  createbucket:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-        mc alias set local http://minio:9000 minioadmin minioadmin123 &&
-        mc mb --ignore-existing local/librc-test
-      "
+  webdav:
+    image: rclone/rclone:1.74.3
+    ports:
+      - "18080:8080"
+    command: ["serve", "webdav", "/data", "--addr", ":8080", "--user", "testuser", "--pass", "testpass"]
+    tmpfs:
+      - /data
 
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:latest

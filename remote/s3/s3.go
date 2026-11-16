@@ -26,6 +26,19 @@ type Filesystem struct {
 var _ libfs.Filesystem = (*Filesystem)(nil)
 
 func New(ctx context.Context, cfg Config) (*Filesystem, error) {
+	m, err := configMap(cfg)
+	if err != nil {
+		return nil, err
+	}
+	inner, err := rclones3.NewFs(ctx, cfg.Name, cfg.Bucket, m)
+	if err != nil {
+		return nil, fmt.Errorf("s3: %w", err)
+	}
+	return &Filesystem{inner: inner, cfg: cfg}, nil
+}
+
+// configMap turns cfg into rclone options (shared by New and ListBuckets)
+func configMap(cfg Config) (configmap.Simple, error) {
 	m := configmap.Simple{}
 	if err := rcloneutil.ApplyDefaults("s3", m); err != nil {
 		return nil, err
@@ -57,12 +70,21 @@ func New(ctx context.Context, cfg Config) (*Filesystem, error) {
 	if cfg.ForcePathStyle {
 		m.Set("force_path_style", "true")
 	}
+	return m, nil
+}
 
-	inner, err := rclones3.NewFs(ctx, cfg.Name, cfg.Bucket, m)
+// ListBuckets lists the buckets visible on the S3 account (all buckets the credentials can list); cfg.Bucket is ignored.
+// Names come back sorted.
+func ListBuckets(ctx context.Context, cfg Config) ([]string, error) {
+	m, err := configMap(cfg)
+	if err != nil {
+		return nil, err
+	}
+	f, err := rclones3.NewFs(ctx, cfg.Name, "", m)
 	if err != nil {
 		return nil, fmt.Errorf("s3: %w", err)
 	}
-	return &Filesystem{inner: inner, cfg: cfg}, nil
+	return rcloneutil.TopLevelDirs(ctx, f)
 }
 
 func (f *Filesystem) Unwrap() rclonefs.Fs { return f.inner }
@@ -141,6 +163,10 @@ func (f *Filesystem) List(ctx context.Context, dir string) ([]libfs.DirEntry, er
 		result[i] = e
 	}
 	return result, nil
+}
+
+func (f *Filesystem) Walk(ctx context.Context, dir string, fn func(libfs.DirEntry) error) error {
+	return rcloneutil.Walk(ctx, f.inner, dir, fn)
 }
 
 func (f *Filesystem) Mkdir(ctx context.Context, dir string) error {

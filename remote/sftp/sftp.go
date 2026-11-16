@@ -150,6 +150,10 @@ func (f *Filesystem) List(ctx context.Context, dir string) ([]libfs.DirEntry, er
 	return result, nil
 }
 
+func (f *Filesystem) Walk(ctx context.Context, dir string, fn func(libfs.DirEntry) error) error {
+	return rcloneutil.Walk(ctx, f.inner, dir, fn)
+}
+
 func (f *Filesystem) Mkdir(ctx context.Context, dir string) error {
 	return f.inner.Mkdir(ctx, dir)
 }

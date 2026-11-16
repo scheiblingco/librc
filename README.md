@@ -173,6 +173,12 @@ err = fs.Copy(ctx, "src/file.txt", "dst/file.txt")
 err = fs.Purge(ctx, "old-prefix/")
 ```
 
+To see every bucket the credentials can list, use `ListBuckets` with the same config (`Bucket` is ignored):
+
+```go
+buckets, err := s3.ListBuckets(ctx, cfg) // sorted bucket names
+```
+
 #### MinIO example
 
 ```go
@@ -220,6 +226,8 @@ fs, err := azure.New(ctx, azure.Config{
 entries, err := fs.List(ctx, "")
 err = fs.Put(ctx, "backups/dump.tar.gz", r, size, time.Now())
 ```
+
+`azure.ListContainers(ctx, cfg)` lists the containers in the storage account (`Container` is ignored).
 
 ### Azure Files
 
@@ -283,6 +291,36 @@ entries, err := fs.List(ctx, "reports/")
 err = fs.Copy(ctx, "reports/q1.xlsx", "archive/2025/q1.xlsx")
 ```
 
+`smb.ListShares(ctx, cfg)` lists the shares on the server (`Share` and `Root` are ignored).
+
+### WebDAV
+
+```go
+import "github.com/scheiblingco/librc/remote/webdav"
+
+fs, err := webdav.New(ctx, webdav.Config{
+    // Internal identifier, set to whatever you like
+    Name: "mydav",
+    // URL is the WebDAV endpoint (required).
+    URL: "https://cloud.example.com/remote.php/dav/files/alice",
+    // Vendor enables server-specific behaviour (modification times, checksums, chunked uploads).
+    // Options: webdav.VendorNextcloud, webdav.VendorOwncloud, webdav.VendorInfiniteScale,
+    //          webdav.VendorSharepoint, webdav.VendorSharepointNTLM, webdav.VendorFastmail,
+    //          webdav.VendorRclone, webdav.VendorOther. (default: other)
+    Vendor: webdav.VendorNextcloud,
+    // User and Password (plain text; obscured internally). For NTLM, User is "Domain\\User".
+    User:     "alice",
+    Password: os.Getenv("WEBDAV_PASSWORD"),
+
+    // BearerToken is used instead of User and Password. (default: "")
+    // BearerToken: os.Getenv("WEBDAV_TOKEN"),
+    // Root is a path below URL to use as the filesystem root. (default: URL itself)
+    // Root: "backups",
+})
+```
+
+rclone's `bearer_token_command` option isn't exposed on purpose: it runs a shell command taken from configuration.
+
 ### Hetzner Storage Box
 
 Hetzner Storage Boxes are accessed via SFTP on port 23. The hostname is derived automatically from the username (`{username}.your-storagebox.de`).
@@ -338,8 +376,25 @@ func uploadFile(ctx context.Context, filesystem libfs.Filesystem, path string, r
 }
 
 func listRecursive(ctx context.Context, filesystem libfs.Filesystem, dir string) ([]libfs.DirEntry, error) {
-    return filesystem.List(ctx, dir)
+    var all []libfs.DirEntry
+    err := filesystem.Walk(ctx, dir, func(e libfs.DirEntry) error {
+        all = append(all, e)
+        return nil
+    })
+    return all, err
 }
+```
+
+`Walk` visits every file and directory below `dir`, recursively. Where the backend has a flat recursive listing (S3, Azure Blob) it uses that, which is much faster on large buckets, and directories are synthesized from the object paths. Entries arrive in no particular order (a child can come before its parent), `fn` is never called concurrently, and returning an error from `fn` stops the walk:
+
+```go
+var total int64
+err := filesystem.Walk(ctx, "", func(e libfs.DirEntry) error {
+    if !e.IsDir() {
+        total += e.Size()
+    }
+    return nil
+})
 ```
 
 ### Available methods
@@ -353,6 +408,7 @@ func listRecursive(ctx context.Context, filesystem libfs.Filesystem, dir string)
 | `Copy` | `(ctx, src, dst) error` |
 | `Move` | `(ctx, src, dst) error` |
 | `List` | `(ctx, dir) ([]DirEntry, error)` |
+| `Walk` | `(ctx, dir, fn func(DirEntry) error) error` |
 | `Mkdir` | `(ctx, dir) error` |
 | `MkdirAll` | `(ctx, dir) error` |
 | `Rmdir` | `(ctx, dir) error` |
@@ -412,3 +468,21 @@ err := transfer.MoveDir(ctx, sftp, "processed/", s3, "archive/processed/")
 | `MoveFile(ctx, src, srcPath, dst, dstPath)` | Move one file from src to dst |
 | `CopyDir(ctx, src, srcDir, dst, dstDir)` | Recursively copy a directory tree |
 | `MoveDir(ctx, src, srcDir, dst, dstDir)` | Recursively move a directory tree |
+
+## Tests
+
+Unit tests need nothing else running:
+
+```bash
+go test ./...
+```
+
+The integration tests run every backend against the services in `tests/compose.yml` (rclone's `serve s3` and `serve webdav`, Azurite, SFTP, FTP and Samba):
+
+```bash
+docker compose -f tests/compose.yml up -d
+go test -tags integration ./tests/...
+docker compose -f tests/compose.yml down
+```
+
+Azure Files has no emulator, so its test only runs with `AZURE_FILES_ACCOUNT`, `AZURE_FILES_KEY` and `AZURE_FILES_SHARE` set.

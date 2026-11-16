@@ -1,3 +1,5 @@
+//go:build integration
+
 // Package tests contains integration tests for all librc backends.
 // Start the test infrastructure before running:
 //
@@ -82,6 +84,28 @@ func runSuite(t *testing.T, fsys libfs.Filesystem) {
 		}
 		if !found {
 			t.Errorf("List: hello.txt not found in entries")
+		}
+	})
+
+	t.Run("Walk", func(t *testing.T) {
+		var sawDir, sawFile bool
+		err := fsys.Walk(ctx, "", func(e libfs.DirEntry) error {
+			switch {
+			case e.IsDir() && e.Remote() == "testdir":
+				sawDir = true
+			case !e.IsDir() && e.Remote() == testFile:
+				sawFile = true
+				if e.Size() != int64(len(testContent)) {
+					t.Errorf("Walk: %s size = %d, want %d", testFile, e.Size(), len(testContent))
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("Walk: %v", err)
+		}
+		if !sawDir || !sawFile {
+			t.Errorf("Walk: saw testdir %v, saw %s %v", sawDir, testFile, sawFile)
 		}
 	})
 
