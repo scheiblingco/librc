@@ -5,6 +5,7 @@ package tests
 import (
 	"context"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/scheiblingco/librc/remote/azurefiles"
@@ -35,4 +36,9 @@ func TestAzureFiles(t *testing.T) {
 		t.Fatalf("azurefiles.New: %v", err)
 	}
 	runSuite(t, fsys)
+
+	shares, err := azurefiles.ListShares(context.Background(), azurefiles.Config{Name: "azurefiles-list", Account: account, Key: key})
+	if err != nil || !slices.Contains(shares, share) {
+		t.Errorf("azurefiles.ListShares: %v %v", shares, err)
+	}
 }

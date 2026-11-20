@@ -166,6 +166,9 @@ fs, err := s3.New(ctx, s3.Config{
     // StorageClass: s3.StorageClassStandard,
     // ACL is the canned ACL applied to uploaded objects (e.g. "private", "public-read"). (default: "")
     // ACL: "private",
+    // UseServerModTime uses the listing's LastModified as each object's mtime instead of
+    // a HEAD per object. Much faster for scans; the time is the upload time. (default: false)
+    // UseServerModTime: true,
 })
 
 entries, err := fs.List(ctx, "prefix/")
@@ -258,6 +261,8 @@ fs, err := azurefiles.New(ctx, azurefiles.Config{
 err = fs.MkdirAll(ctx, "team/documents")
 err = fs.Put(ctx, "team/documents/report.docx", r, size, time.Now())
 ```
+
+`azurefiles.ListShares(ctx, cfg)` lists the shares in the storage account (`ShareName` and `Root` are ignored). A SAS URL needs list permission on the file service.
 
 ### SMB / CIFS
 

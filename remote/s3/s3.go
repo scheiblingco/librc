@@ -30,6 +30,12 @@ func New(ctx context.Context, cfg Config) (*Filesystem, error) {
 	if err != nil {
 		return nil, err
 	}
+	if cfg.UseServerModTime {
+		// A global rclone option; the backend keeps the config of this context
+		var ci *rclonefs.ConfigInfo
+		ctx, ci = rclonefs.AddConfig(ctx)
+		ci.UseServerModTime = true
+	}
 	inner, err := rclones3.NewFs(ctx, cfg.Name, cfg.Bucket, m)
 	if err != nil {
 		return nil, fmt.Errorf("s3: %w", err)

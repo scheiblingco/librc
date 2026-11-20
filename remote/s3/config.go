@@ -58,4 +58,9 @@ type Config struct {
 
 	// Forces path-style S3 URLs (required for MinIO and some other providers).
 	ForcePathStyle bool
+
+	// Uses the listing's LastModified as each object's mtime instead of HEADing
+	// every object for its mtime metadata (much faster for read-only scans; the
+	// time is the upload time, not the source file's).
+	UseServerModTime bool
 }

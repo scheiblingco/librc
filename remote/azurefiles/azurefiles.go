@@ -5,12 +5,17 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azfile/service"
+	"github.com/rclone/rclone/backend/azureblob/auth"
 	rcloneazurefiles "github.com/rclone/rclone/backend/azurefiles"
 	rclonefs "github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config/configmap"
+	"github.com/rclone/rclone/fs/config/configstruct"
 	"github.com/rclone/rclone/fs/operations"
 
 	libfs "github.com/scheiblingco/librc/fs"
@@ -26,12 +31,23 @@ type Filesystem struct {
 var _ libfs.Filesystem = (*Filesystem)(nil)
 
 func New(ctx context.Context, cfg Config) (*Filesystem, error) {
+	m, err := configMap(cfg)
+	if err != nil {
+		return nil, err
+	}
+	m.Set("share_name", cfg.ShareName)
+	inner, err := rcloneazurefiles.NewFs(ctx, cfg.Name, cfg.Root, m)
+	if err != nil {
+		return nil, fmt.Errorf("azurefiles: %w", err)
+	}
+	return &Filesystem{inner: inner, cfg: cfg}, nil
+}
+
+// configMap turns cfg into rclone options (shared by New and ListShares)
+func configMap(cfg Config) (configmap.Simple, error) {
 	m := configmap.Simple{}
 	if err := rcloneutil.ApplyDefaults("azurefiles", m); err != nil {
 		return nil, err
-	}
-	if cfg.ShareName != "" {
-		m.Set("share_name", cfg.ShareName)
 	}
 	if cfg.Account != "" {
 		m.Set("account", cfg.Account)
@@ -48,12 +64,53 @@ func New(ctx context.Context, cfg Config) (*Filesystem, error) {
 	if cfg.Endpoint != "" {
 		m.Set("endpoint", cfg.Endpoint)
 	}
+	return m, nil
+}
 
-	inner, err := rcloneazurefiles.NewFs(ctx, cfg.Name, cfg.Root, m)
+// ListShares lists the file shares on the storage account; cfg.ShareName and
+// cfg.Root are ignored. rclone's backend can't list shares, so this goes through
+// rclone's Azure auth (same credential handling as New) and the azfile SDK.
+// Names come back sorted. A SAS URL needs the list permission on the service.
+func ListShares(ctx context.Context, cfg Config) ([]string, error) {
+	m, err := configMap(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var opt auth.Options
+	if err := configstruct.Set(m, &opt); err != nil {
+		return nil, err
+	}
+	res, err := auth.NewClient(ctx, auth.NewClientOpts[service.Client, service.ClientOptions, service.SharedKeyCredential]{
+		DefaultBaseURL:                   "file.core.windows.net",
+		NewClient:                        service.NewClient,
+		NewClientFromConnectionString:    service.NewClientFromConnectionString,
+		NewClientWithNoCredential:        service.NewClientWithNoCredential,
+		NewClientWithSharedKeyCredential: service.NewClientWithSharedKeyCredential,
+		NewSharedKeyCredential:           service.NewSharedKeyCredential,
+		SetClientOptions: func(o *service.ClientOptions, p policy.ClientOptions) {
+			o.ClientOptions = p
+			backup := service.ShareTokenIntentBackup
+			o.FileRequestIntent = &backup
+		},
+	}, &opt)
 	if err != nil {
 		return nil, fmt.Errorf("azurefiles: %w", err)
 	}
-	return &Filesystem{inner: inner, cfg: cfg}, nil
+	var names []string
+	pager := res.Client.NewListSharesPager(nil)
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("azurefiles: list shares: %w", err)
+		}
+		for _, sh := range page.Shares {
+			if sh.Name != nil {
+				names = append(names, *sh.Name)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 func (f *Filesystem) Unwrap() rclonefs.Fs { return f.inner }
